@@ -25,9 +25,7 @@ module.exports = function (homebridge) {
 };
 
 function DisruptivePlatform (log, config, api) {
-    if (!this.checkRequiredConfig()) {
-        return;
-    }
+    this.validResponse = false;
 
     this.log = log;
     this.config = config;
@@ -38,10 +36,15 @@ function DisruptivePlatform (log, config, api) {
     this.token = '';
     this.tokenExpiration = 0;
 
+    if (!this.checkRequiredConfig()) {
+        return;
+    }
+
     this.projectId = this.config.projectId;
     this.keyId = this.config.keyId;
     this.keySecret = this.config.keySecret;
     this.serviceAccount = this.config.serviceAccount;
+    this.port = this.config.port;
 
     this.initializeRequestHandler();
 
@@ -73,18 +76,28 @@ DisruptivePlatform.prototype = {
             return false;
         }
 
+        if (!this.config.port) {
+            this.log('Missing required config: port');
+            return false;
+        }
         return true;
     },
 
     loadDevices: async function() {
-        const options = {
-            uri: 'http://api.disruptive-technologies.com/v2/projects/' + this.projectId + '/devices?token=' + await this.requestToken(),
-            method: 'GET',
-            json: true
-        };
-        const response = await request(options);
-        this.log(response);
-        return response.devices;
+        try {
+            const options = {
+                uri: 'http://api.disruptive-technologies.com/v2/projects/' + this.projectId + '/devices?token=' + await this.requestToken(),
+                method: 'GET',
+                json: true
+            };
+            const response = await request(options);
+
+            this.validResponse = true;
+            return response.devices;
+        } catch {
+            this.validResponse = false;
+            this.log('Did not recieve a valid response from cloud.')
+        }
     },
 
     initialize: async function() {
@@ -142,11 +155,26 @@ DisruptivePlatform.prototype = {
         accessory.context.identifier = device.name;
         accessory.context.type = device.type;
 
-        //Default values
-        accessory.context.currentTemperature = 0;
-        accessory.context.currentRelativeHumidity = 0;
-        accessory.context.objectPresent = true;
-        accessory.context.batteryStatus = 0;
+        switch(device.type) {
+            case 'touch': {
+                break;
+            }
+            case 'temperature': {
+                accessory.context.currentTemperature = device.reported.temperature.value;
+                break;
+            }
+            case 'humidity': {
+                accessory.context.currentTemperature = device.reported.humidity.temperature;
+                accessory.context.currentRelativeHumidity = device.reported.humidity.relativeHumidity;
+                break;
+            }
+            case 'proximity': {
+                accessory.context.objectPresent = device.reported.objectPresent.state;
+                break;
+            }
+        }
+
+        accessory.context.batteryStatus = device.reported.batteryStatus ? device.reported.batteryStatus.percentage : 0;
     },
 
     addAccessoryInformation: function(accessory) {
@@ -164,7 +192,8 @@ DisruptivePlatform.prototype = {
         let accessory = new Accessory(device.name, uuid);
         accessory.context.name = device.labels.name;
 
-        this.log(device.labels.name);
+        this.setContext(accessory, device);
+        this.addAccessoryInformation(accessory);
 
         switch(device.type) {
             case 'touch': {
@@ -189,16 +218,16 @@ DisruptivePlatform.prototype = {
                 break;
             }
         }
-        accessory.addService(Service.BatteryService, 'Battery Status');
-        accessory.addService(Service.AccessoryInformation, 'Information');
+        accessory.addService(Service.BatteryService);
 
-        this.setContext(accessory, device);
-        this.addAccessoryInformation(accessory);
         this.updateAccessoryCharacteristics(accessory);
+
+        this.log(device.labels);
+        this.log(device.reported);
 
         this.accessoryMap.set(device.name, accessory);
         this.accessories.push(accessory);
-        this.api.registerPlatformAccessories("homebridge-disruptive", "DisruptivePlatform", [accessory]);
+        this.api.registerPlatformAccessories(pluginName, platformName, [accessory]);
     },
 
     configureAccessory: function(accessory) {
@@ -255,10 +284,14 @@ DisruptivePlatform.prototype = {
                 }
             } catch (error) {
                 this.log('Unable to parse received event');
+                response.sendStatus(400);
             }
             response.sendStatus(200);
         });
-        app.listen(80);
+        const platform = this;
+        app.listen(this.port, function(){
+            platform.log("Listening for events on port: " + platform.port)
+        });
     },
 
     requestToken: async function () {
