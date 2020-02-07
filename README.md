@@ -1,6 +1,6 @@
-#Disruptive Cloud Homebridge
+# Disruptive Cloud Homebridge
 
-# Installation
+## Installation
 
 Homebridge and any homebridge plugins should be downloaded globally using the *-g* flag.
 

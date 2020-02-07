@@ -222,9 +222,6 @@ DisruptivePlatform.prototype = {
 
         this.updateAccessoryCharacteristics(accessory);
 
-        this.log(device.labels);
-        this.log(device.reported);
-
         this.accessoryMap.set(device.name, accessory);
         this.accessories.push(accessory);
         this.api.registerPlatformAccessories(pluginName, platformName, [accessory]);
@@ -276,8 +273,10 @@ DisruptivePlatform.prototype = {
                             }
                             break;
                         }
-                        default: {
-
+                        case 'batteryStatus': {
+                            accessory.context.batteryStatus = event.data.batteryStatus.percentage;
+                            accessory.getService(Service.BatteryService).getCharacteristic(Characteristic.BatteryLevel).updateValue(accessory.context.batteryStatus);
+                            this.log('Battery Status Event');
                             break;
                         }
                     }
