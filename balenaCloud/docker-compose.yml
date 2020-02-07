@@ -1,0 +1,16 @@
+version: '2'
+volumes:
+  homebridge-data:
+services:
+  disruptive:
+    build: .
+    restart: always
+    network_mode: host
+    volumes:
+      - "homebridge-data:/homebridge"
+    environment:
+      - TZ=Europe/Berlin
+      - PGID=1000
+      - PUID=1000
+      - HOMEBRIDGE_CONFIG_UI_PORT=8080
+      - HOMEBRIDGE_CONFIG_UI=1

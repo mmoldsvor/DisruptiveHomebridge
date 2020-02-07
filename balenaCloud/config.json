@@ -1,0 +1,19 @@
+{
+  "bridge": {
+    "name": "Homebridge",
+    "username": "0E:52:35:41:6C:14",
+    "port": 51111,
+    "pin": "031-45-154"
+  },
+  "accessories": [],
+  "platforms": [
+    {
+      "platform": "DisruptivePlatform",
+      "projectId": "<Project ID from Disruptive Cloud>",
+      "serviceAccount": "<Service Account Email>",
+      "keyId": "<Service Account Key ID>",
+      "keySecret": "<Key Secret generated on Service Account creation>",
+      "port": 80
+    }
+  ]
+}
