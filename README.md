@@ -34,6 +34,11 @@ Note: Newly added devices will not be requested runtime. To update accessory lis
 }
 ```
 
+### Optional config:
+```
+- "excludedTypes": ["touch", "temperature", "humidity", "proximity"]
+```
+
 ## BalenaCloud
 - Download the balenaCloud directory from the repository: .
 - Push to your balenaCloud device using Balena CLI: 

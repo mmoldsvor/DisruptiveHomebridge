@@ -20,7 +20,6 @@ class touchAccessory {
 
         service.getCharacteristic(Characteristic.ProgrammableSwitchEvent)
             .on('set', function(callback) {
-                self.log('Touch event');
                 callback();
             });
     }
