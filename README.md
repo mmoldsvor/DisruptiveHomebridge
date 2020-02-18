@@ -37,6 +37,7 @@ Note: Newly added devices will not be requested runtime. To update accessory lis
 ### Optional config:
 ```
 - "excludedTypes": ["touch", "temperature", "humidity", "proximity"]
+- "excludeSensor": ["projects/<Project ID>/devices/<Device ID>", ...]
 ```
 
 ## BalenaCloud

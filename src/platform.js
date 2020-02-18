@@ -48,10 +48,14 @@ function DisruptivePlatform (log, config, api) {
 
     // Ensures that only supported sensors are added
     this.allowedSensors = new Set(['touch', 'temperature', 'humidity', 'proximity']);
-    this.exclude = this.config.excludedTypes || [];
-    for (let type of this.exclude) {
+    this.excludedTypes = this.config.excludedTypes || [];
+    this.log("Excluding sensors with types: " + this.excludedTypes);
+    for (let type of this.excludedTypes) {
         this.allowedSensors.delete(type);
     }
+
+    this.excludedSensors = new Set(this.config.excludedSensors || []);
+    this.log("Excluding sensors with identifiers: " + Array.from(this.excludedSensors));
 
     this.initializeRequestHandler();
 
@@ -115,16 +119,19 @@ DisruptivePlatform.prototype = {
         devices.map(device => this.deviceMap.set(device.name, device));
 
         const accessoriesCopy = Array.from(this.accessories);
-        // Remove accessories with wrong type
         for (const accessory of accessoriesCopy) {
+            // Remove accessories with wrong type
             if(accessory.context.type !== this.deviceMap.get(accessory.context.identifier).type) {
                 this.removeAccessory(accessory);
             }
-        }
 
-        // Remove excluded accessories
-        for (const accessory of accessoriesCopy) {
+            // Remove excluded accessories
             if (!this.allowedSensors.has(accessory.context.type)) {
+                this.removeAccessory(accessory);
+            }
+
+            // Remove excluded sensors
+            if (this.excludedSensors.has(accessory.context.identifier)) {
                 this.removeAccessory(accessory);
             }
         }
@@ -138,7 +145,7 @@ DisruptivePlatform.prototype = {
     },
 
     addAccessoryFromDevice: function(device) {
-        if (!this.accessoryMap.has(device.name) && this.allowedSensors.has(device.type)) {
+        if (!this.accessoryMap.has(device.name) && this.allowedSensors.has(device.type) && !this.excludedSensors.has(device.name)) {
             this.addAccessory(device);
         }
     },
