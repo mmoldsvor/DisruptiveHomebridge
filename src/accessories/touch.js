@@ -1,5 +1,17 @@
 let Service, Characteristic;
 
+//                                       Accessory Information                   Stateless Programmable Switch
+const allowedServices = new Set(['0000003E-0000-1000-8000-0026BB765291', '00000089-0000-1000-8000-0026BB765291']);
+
+function handleEvent(accessory, event) {
+    if (accessory.context.type === 'touch' && event.eventType === 'touch') {
+        accessory.getService(Service.StatelessProgrammableSwitch).getCharacteristic(Characteristic.ProgrammableSwitchEvent).updateValue(0);
+    }
+}
+
+function addAccessoryServices(device) {
+    accessory.addService(Service.StatelessProgrammableSwitch, device.labels.name);
+}
 
 class touchAccessory {
     constructor (platform, accessory) {
@@ -25,4 +37,9 @@ class touchAccessory {
     }
 }
 
-module.exports = touchAccessory;
+module.exports = {
+    allowedServices: allowedServices,
+    accessory: touchAccessory,
+    handleEvent: handleEvent,
+    addAccessoryServices: addAccessoryServices
+};

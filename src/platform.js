@@ -36,6 +36,13 @@ function DisruptivePlatform (log, config, api) {
     this.token = '';
     this.tokenExpiration = 0;
 
+    this.controller = {
+        'touch': touchAccessory,
+        'temperature': temperatureAccessory,
+        'humidity': humidityAccessory,
+        'proximity': proximityAccessory
+    };
+
     if (!this.checkRequiredConfig()) {
         return;
     }
@@ -69,6 +76,9 @@ function DisruptivePlatform (log, config, api) {
 
 DisruptivePlatform.prototype = {
     checkRequiredConfig: function() {
+        /**
+         * Checks if all required configuration parameters are present in the config.json file.
+         */
         if (!this.config.projectId) {
             this.log('Missing required config: projectId');
             return false;
@@ -97,6 +107,10 @@ DisruptivePlatform.prototype = {
     },
 
     loadDevices: async function() {
+        /**
+         * Requests the all devices from Disruptive Technologies Cloud, and returns a promise of the devices.
+         */
+
         try {
             this.log("Loading Devices");
             const options = {
@@ -115,27 +129,31 @@ DisruptivePlatform.prototype = {
     },
 
     initialize: async function() {
+        /**
+         * Initializes all loaded devices, and removes flagged and excluded devices.
+         */
         const devices = await this.loadDevices();
         devices.map(device => this.deviceMap.set(device.name, device));
 
         const accessoriesCopy = Array.from(this.accessories);
         for (const accessory of accessoriesCopy) {
             // Remove accessories with wrong type
-            if(accessory.context.type !== this.deviceMap.get(accessory.context.identifier).type) {
+            if(this.deviceMap.has(accessory.context.identifier ) && accessory.context.type !== this.deviceMap.get(accessory.context.identifier).type) {
                 this.removeAccessory(accessory);
             }
 
             // Remove excluded accessories
-            if (!this.allowedSensors.has(accessory.context.type)) {
+            else if (!this.allowedSensors.has(accessory.context.type)) {
                 this.removeAccessory(accessory);
             }
 
             // Remove excluded sensors
-            if (this.excludedSensors.has(accessory.context.identifier)) {
+            else if (this.excludedSensors.has(accessory.context.identifier)) {
                 this.removeAccessory(accessory);
             }
         }
 
+        // Adds all loaded devices as accessories
         devices.map(device => this.addAccessoryFromDevice(device));
 
         this.removeFlaggedAccessories(devices);
@@ -145,13 +163,28 @@ DisruptivePlatform.prototype = {
     },
 
     addAccessoryFromDevice: function(device) {
-        if (!this.accessoryMap.has(device.name) && this.allowedSensors.has(device.type) && !this.excludedSensors.has(device.name)) {
-            this.addAccessory(device);
+        /**
+         * Checks if three conditions are met. 1) The device does not already exist. 2) The device type has not been excluded. 3) The device identifier has not been excluded.
+         * @param {Object} device A singular device loaded from the Disruptive Technologies Cloud.
+         */
+        if (!this.accessoryMap.has(device.name)) {
+            if (this.allowedSensors.has(device.type) && !this.excludedSensors.has(device.name)) {
+                this.addAccessory(device);
+            }
+        } else {
+            // Updates sensor data of cached accessories
+            this.updateSensorData(this.accessoryMap.get(device.name), device);
         }
     },
 
     removeFlaggedAccessories: async function(devices) {
-        for (const accessory of this.accessories) {
+        /**
+         * Removes all devices from cached accessories that are no longer present in the Disruptive Technologies Cloud.
+         * @param {Object} devices  Loaded devices
+         */
+        const accessoriesCopy = Array.from(this.accessories);
+
+        for (const accessory of accessoriesCopy) {
             if (accessory.context.remove && this.validResponse) {
                 let shouldRemove = true;
                 for (const device of devices) {
@@ -167,6 +200,10 @@ DisruptivePlatform.prototype = {
     },
 
     updateAccessoryCharacteristics: function(accessory) {
+        /**
+         * Adds all Services if they do not already exist, and sets up the device according to its type.
+         */
+
         this.log('Configuring accessory: ' + accessory.context.name + ' ' + accessory.context.identifier);
         const platform = this;
 
@@ -177,68 +214,57 @@ DisruptivePlatform.prototype = {
 
         switch (accessory.context.type) {
             case 'touch': {
-                new touchAccessory(this, accessory);
+                if (!accessory.getService(Service.StatelessProgrammableSwitch))
+                    accessory.addService(Service.StatelessProgrammableSwitch, accessory.context.name);
+
+                new touchAccessory.accessory(this, accessory);
                 break;
             }
             case 'temperature': {
+                if (!accessory.getService(Service.TemperatureSensor))
+                    accessory.addService(Service.TemperatureSensor, accessory.context.name);
+
                 new temperatureAccessory.accessory(this, accessory);
                 break;
             }
             case 'humidity': {
+                if (!accessory.getService(Service.HumiditySensor))
+                    accessory.addService(Service.HumiditySensor, accessory.context.name);
+
+                if (!accessory.getService(Service.TemperatureSensor))
+                    accessory.addService(Service.TemperatureSensor, accessory.context.name);
+
                 new humidityAccessory.accessory(this, accessory);
                 break;
             }
             case 'proximity': {
+                if (!accessory.getService(Service.ContactSensor))
+                    accessory.addService(Service.ContactSensor, accessory.context.name);
+
                 new proximityAccessory.accessory(this, accessory);
                 break;
             }
         }
     },
 
-    setContext: function(accessory, device) {
-        accessory.context.identifier = device.name;
-        accessory.context.type = device.type;
-        accessory.context.lastEvent = this.getCurrentTimestamp();
-
-        accessory.context.currentTemperature = 0;
-        accessory.context.currentRelativeHumidity = 0;
-        accessory.context.objectPresent = false;
-
-        accessory.context.batteryStatus = 0;
+    setDefaultSensorData: function(accessory) {
+        /**
+         * Sets default values for all sensors, and adds specific data according to device type.
+         */
+        accessory.context.lastEvent = 0;
+        accessory.context.statusLowBattery = 0;
         accessory.context.fault = 0;
         accessory.context.active = true;
-
-        switch (device.type) {
-            case 'touch': {
-                break;
-            }
-            case 'temperature': {
-                accessory.context.currentTemperature = device.reported.temperature.value;
-                break;
-            }
-            case 'humidity': {
-                accessory.context.currentTemperature = device.reported.humidity.temperature;
-                accessory.context.currentRelativeHumidity = device.reported.humidity.relativeHumidity;
-                break;
-            }
-            case 'proximity': {
-                accessory.context.objectPresent = (device.reported.objectPresent.state === 'NOT_PRESENT');
-                break;
-            }
-        }
     },
 
-    // Adds undefined context on all cached accessories
-    fixContext: function(accessory) {
-        accessory.context.lastEvent = accessory.context.lastEvent || this.getCurrentTimestamp();
-
-        accessory.context.currentTemperature = accessory.context.currentTemperature || 0;
-        accessory.context.currentRelativeHumidity = accessory.context.currentRelativeHumidity || 0;
-        accessory.context.objectPresent = accessory.context.objectPresent || false;
-
-        accessory.context.batteryStatus = accessory.context.batteryStatus || 0;
-        accessory.context.fault = accessory.context.fault || 0;
-        accessory.context.active = accessory.context.active || true;
+    updateSensorData: function(accessory, device) {
+        if (device.reported.networkStatus)
+            accessory.context.lastEvent = Math.round(new Date(device.reported.networkStatus.updateTime)/1000);
+        if (device.reported.batteryStatus)
+            accessory.context.statusLowBattery = (device.reported.batteryStatus.percentage < 20)? 1 : 0;
+        if (device.type !== 'touch'){
+            this.controller[accessory.context.type].setContext(accessory, device);
+        }
     },
 
     addAccessoryInformation: function(accessory) {
@@ -256,35 +282,15 @@ DisruptivePlatform.prototype = {
         let uuid = UUIDGen.generate(device.name);
         let accessory = new Accessory(device.name, uuid);
         accessory.context.name = device.labels.name;
+        accessory.context.identifier = device.name;
+        accessory.context.type = device.type;
+
         accessory.context.remove = false;
 
-        this.setContext(accessory, device);
-        this.addAccessoryInformation(accessory);
-
-        switch(device.type) {
-            case 'touch': {
-                accessory.addService(Service.StatelessProgrammableSwitch, device.labels.name);
-                break;
-            }
-            case 'temperature': {
-                accessory.addService(Service.TemperatureSensor, device.labels.name);
-                break;
-            }
-            case 'humidity': {
-                accessory.addService(Service.HumiditySensor, device.labels.name);
-                accessory.addService(Service.TemperatureSensor, device.labels.name);
-                break;
-            }
-            case 'proximity': {
-                accessory.addService(Service.ContactSensor, device.labels.name);
-                break;
-            }
-            default: {
-                accessory.addService(Service.StatelessProgrammableSwitch, device.labels.name);
-                break;
-            }
-        }
         this.updateAccessoryCharacteristics(accessory);
+        this.setDefaultSensorData(accessory);
+        this.updateSensorData(accessory, device);
+        this.addAccessoryInformation(accessory);
 
         this.accessoryMap.set(device.name, accessory);
         this.accessories.push(accessory);
@@ -297,8 +303,11 @@ DisruptivePlatform.prototype = {
         this.accessoryMap.set(accessory.context.identifier, accessory);
         this.accessories.push(accessory);
 
-        this.fixContext(accessory);
+        this.setDefaultSensorData(accessory);
         this.updateAccessoryCharacteristics(accessory);
+
+        // Removes Services present in older versions
+        this.removeUnusedServices(accessory);
     },
 
     removeAccessory: function(accessory) {
@@ -314,15 +323,30 @@ DisruptivePlatform.prototype = {
         this.api.unregisterPlatformAccessories("homebridge-disruptive", "DisruptivePlatform", [accessory]);
     },
 
+    removeUnusedServices: function(accessory) {
+    let services = Array.from(accessory.services);
+    for (let service of services) {
+        if (!this.controller[accessory.context.type].allowedServices.has(service.UUID))
+            accessory.removeService(service);
+        }
+    },
+
     statusTimer: function() {
+        /**
+         * Starts a timer that checks if device has responded in the hour.
+         */
         for (let accessory of this.accessories)
             this.updateStatus(accessory);
-        setTimeout(this.statusTimer.bind(this), 1000*60*10);
+        setTimeout(this.statusTimer.bind(this), 1000*60*60);
     },
 
     updateStatus: function(accessory) {
+        /**
+         * Updates StatusBatteryLow, StatusActive and StatusFault for all relevant devices
+         */
+
         // Check if accessory has responded in the last hour
-        if ((this.getCurrentTimestamp() - accessory.context.lastEvent) >= 5*60) {
+        if ((this.getCurrentTimestamp() - accessory.context.lastEvent) >= 60*60) {
             accessory.context.fault = 1;
             accessory.context.active = false;
         } else {
@@ -330,65 +354,28 @@ DisruptivePlatform.prototype = {
             accessory.context.active = true;
         }
 
-        switch (accessory.context.type) {
-            case 'temperature': {
-                temperatureAccessory.updateBatteryStatus(accessory);
-                temperatureAccessory.updateStatus(accessory);
-                break;
-            }
-            case 'humidity': {
-                humidityAccessory.updateBatteryStatus(accessory);
-                humidityAccessory.updateStatus(accessory);
-                break;
-            }
-            case 'proximity':{
-                proximityAccessory.updateBatteryStatus(accessory);
-                proximityAccessory.updateStatus(accessory);
-                break;
-            }
+        if (accessory.context.type !== 'touch'){
+            this.controller[accessory.context.type].updateBatteryStatus(accessory);
+            this.controller[accessory.context.type].updateStatus(accessory);
         }
     },
 
     initializeRequestHandler: function() {
+        /**
+         * Starts a server that listens to route /event at a given port
+         */
         app.post('/event', (request, response) => {
             try {
                 const event = request.body.event;
                 const accessory = this.accessoryMap.get(event.targetName);
-                accessory.context.lastEvent = this.getCurrentTimestamp();
 
                 if (accessory) {
+                    accessory.context.lastEvent = this.getCurrentTimestamp();
+
+                    this.controller[accessory.context.type].handleEvent(accessory, event);
                     switch (event.eventType) {
-                        case 'touch': {
-                            if (accessory.context.type === 'touch') {
-                                accessory.getService(Service.StatelessProgrammableSwitch).getCharacteristic(Characteristic.ProgrammableSwitchEvent).updateValue(0);
-                            }
-                            break;
-                        }
-                        case 'temperature': {
-                            if (accessory.context.type === 'temperature') {
-                                accessory.context.currentTemperature = event.data.temperature.value;
-                                accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue(accessory.context.currentTemperature);
-                            }
-                            break;
-                        }
-                        case 'humidity': {
-                            if (accessory.context.type === 'humidity') {
-                                accessory.context.currentRelativeHumidity = event.data.humidity.relativeHumidity;
-                                accessory.context.currentTemperature = event.data.humidity.temperature;
-                                accessory.getService(Service.HumiditySensor).getCharacteristic(Characteristic.CurrentRelativeHumidity).updateValue(accessory.context.currentRelativeHumidity);
-                                accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue(accessory.context.currentTemperature);
-                            }
-                            break;
-                        }
-                        case 'objectPresent': {
-                            if (accessory.context.type === 'proximity') {
-                                accessory.context.objectPresent = (event.data.objectPresent.state === 'NOT_PRESENT');
-                                accessory.getService(Service.ContactSensor).getCharacteristic(Characteristic.ContactSensorState).updateValue(accessory.context.objectPresent);
-                            }
-                            break;
-                        }
                         case 'batteryStatus': {
-                            accessory.context.batteryStatus = (event.data.batteryStatus.percentage < 20)? 1 : 0;
+                            accessory.context.statusLowBattery = (event.data.batteryStatus.percentage < 20)? 1 : 0;
                             this.updateStatus(accessory);
                             break;
                         }
@@ -399,7 +386,7 @@ DisruptivePlatform.prototype = {
                     }
                 }
             } catch (error) {
-                this.log('Unable to parse received event' + error);
+                this.log('Unable to parse received event: ' + error);
                 response.sendStatus(400);
             }
             response.sendStatus(200);
@@ -411,6 +398,9 @@ DisruptivePlatform.prototype = {
     },
 
     requestToken: async function () {
+        /**
+         * Requests JWT access token if no active token is found. Token expires after 1 hour.
+         */
         const currentTime = this.getCurrentTimestamp();
 
         try {
